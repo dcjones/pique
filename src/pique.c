@@ -12,8 +12,13 @@ void print_help(FILE* fout)
 {
     fprintf(fout,
 "Usage: pique [option]... [file]...\n"
-"Assemble short sequencing reads into contigs, take no prisoners.\n"
+"Assemble short sequencing reads into contigs, take no prisoners.\n\n"
 "Options:\n"
+"  -n                   maxmimum number of unique k-mers (larger numbers use\n"
+"                       more memory but allow potentially more accurate assembly\n"
+"                       (default: 100000000)\n"
+"  -k                   k-mer size used by the de bruijn (default: 25)\n"
+"  -t, --threads        number of threads to use (default: 1)\n"
 "  -h, --help           print this message\n"
 "  -V, --version        display program version\n\n");
 

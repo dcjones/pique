@@ -32,8 +32,12 @@ dbg_t* dbg_alloc(size_t n, size_t k);
 void dbg_free(dbg_t* G);
 
 
-/* */
+/* Add the k-mers contained in a sequence to the de bruijn graph. */
 void dbg_add_twobit_seq(dbg_t* G, const twobit_t* seq);
+
+
+/* Dump the graph to a readable file. */
+void dbg_dump(const dbg_t* G, FILE* fout);
 
 
 #endif

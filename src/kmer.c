@@ -21,12 +21,10 @@ void kmer_init()
         complement2[x] = (complement1[x & 0x3] << 2) | complement1[(x >> 2)];
     }
 
-
     complement4 = malloc_or_die(0x100 * sizeof(kmer_t));
     for (x = 0; x <= 0xff; ++x) {
         complement4[x] = (complement2[x & 0xf] << 4) | complement2[x >> 4];
     }
-
 
     complement8 = malloc_or_die(0x10000 * sizeof(kmer_t));
     for (x = 0; x <= 0xffff; ++x) {
