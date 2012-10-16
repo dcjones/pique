@@ -1,0 +1,8 @@
+
+#ifndef PIQUE_VERSION_H
+#define PIQUE_VERSION_H
+
+#define PIQUE_VERSION "@VERSION@"
+
+#endif
+
