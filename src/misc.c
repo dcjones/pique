@@ -12,6 +12,8 @@
 #include <stdio.h>
 
 
+bool pique_verbose = false;
+
 
 void* malloc_or_die(size_t n)
 {

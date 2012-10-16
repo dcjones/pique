@@ -15,8 +15,8 @@
  */
 
 
-#ifndef QUIP_BLOOM
-#define QUIP_BLOOM
+#ifndef PIQUE_BLOOM
+#define PIQUE_BLOOM
 
 #include "kmer.h"
 #include <stdlib.h>
@@ -40,14 +40,4 @@ unsigned int bloom_get(bloom_t*, kmer_t);
 void         bloom_del(bloom_t*, kmer_t);
 
 #endif
-
-
-/* The first thing we need to compress against a de bruijn graph is a bloom
- * filter that maps k-mers to conditional probabilities.
- *
- *
- * So, let's build a new data structure that maps k-mers to distributions.
- */
-
-
 

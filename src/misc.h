@@ -14,8 +14,13 @@
 #include "config.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <pthread.h>
+
+/* If true, output a bunch of stuff to stderr while running. */
+extern bool pique_verbose;
+
 
 void* malloc_or_die(size_t);
 void* realloc_or_die(void*, size_t);
