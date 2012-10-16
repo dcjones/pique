@@ -46,6 +46,16 @@ FILE* fopen_or_die(const char* path, const char* mode)
 }
 
 
+void pthread_mutex_init_or_die(pthread_mutex_t* mutex,
+                               const pthread_mutexattr_t* attr)
+{
+    if (pthread_mutex_init(mutex, attr) != 0) {
+        fprintf(stderr, "Failed to init pthreads mutex.\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+
 /* This is MurmurHash3. The original C++ code was placed in the public domain
  * by its author, Austin Appleby. */
 

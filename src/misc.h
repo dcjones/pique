@@ -15,10 +15,13 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <pthread.h>
 
 void* malloc_or_die(size_t);
 void* realloc_or_die(void*, size_t);
 FILE* fopen_or_die(const char*, const char*);
+void pthread_mutex_init_or_die(pthread_mutex_t* mutex,
+                               const pthread_mutexattr_t* attr);
 
 #if HAVE_PREFETCH
 #define prefetch(p, rw, locality) __builtin_prefetch(p, rw, locality)

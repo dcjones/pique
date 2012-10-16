@@ -1,5 +1,5 @@
 /*
- * This file is part of quip.
+ * This file is part of pique.
  *
  * Copyright (c) 2012 by Daniel C. Jones <dcjones@cs.washington.edu>
  *

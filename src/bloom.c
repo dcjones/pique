@@ -1,8 +1,10 @@
 
-#include "bloom.h"
-#include "misc.h"
 #include <assert.h>
 #include <string.h>
+#include <pthread.h>
+
+#include "bloom.h"
+#include "misc.h"
 
 
 /* the number of subtables, hard-coded so I can use stack space in a few places
@@ -15,6 +17,7 @@ static const uint32_t fingerprint_mask = 0xfffc00;
 static const size_t   counter_bits     = 10;
 static const uint32_t counter_mask     = 0x0003ff;
 static const size_t   cell_bytes       = 3;
+static const size_t   blocks_per_lock  = 16;
 
 
 static uint32_t get_cell_count(uint8_t* c)
@@ -31,10 +34,11 @@ static void set_cell_count(uint8_t* c, uint32_t cnt)
 
 struct bloom_t_
 {
-    uint8_t* T;
-
     /* pointers into T, to save a little computation */
-    uint8_t* subtable[NUM_SUBTABLES];
+    uint8_t* subtables[NUM_SUBTABLES];
+
+    /* Mutexes each locking a group of blocks_per_lock */
+    pthread_mutex_t* mutexes[NUM_SUBTABLES];
 
     /* number of buckets per subtable */
     size_t n;
@@ -51,14 +55,19 @@ bloom_t* bloom_alloc(size_t n, size_t m)
     B->n = n;
     B->m = m;
 
-    /* the '(. / 4 + 1) * 4' is to make sure things are aligned up to 32-bit
-     * integers, mainly so valgrind doesn't whine. */
-    B->T = malloc_or_die(((NUM_SUBTABLES * n * m * cell_bytes) / 4 + 1) * 4);
-    memset(B->T, 0, ((NUM_SUBTABLES * n * m * cell_bytes) / 4 + 1) * 4);
+    size_t subtable_size = n * m * cell_bytes;
+    /* this is ceiling(n * m / blocks_per_lock) */
+    size_t mutex_count = (n * m + blocks_per_lock - 1) / blocks_per_lock;
 
-    size_t i;
+    size_t i, j;
     for (i = 0; i < NUM_SUBTABLES; ++i) {
-        B->subtable[i] = B->T + i * B->n * B->m * cell_bytes;
+        B->subtables[i] = malloc_or_die(subtable_size);
+        memset(B->subtables[i], 0, subtable_size);
+
+        B->mutexes[i] = malloc_or_die(mutex_count * sizeof(pthread_mutex_t));
+        for (j = 0; j < mutex_count; ++j) {
+            pthread_mutex_init_or_die(&B->mutexes[i][j], NULL);
+        }
     }
 
     return B;
@@ -67,7 +76,10 @@ bloom_t* bloom_alloc(size_t n, size_t m)
 
 void bloom_clear(bloom_t* B)
 {
-    memset(B->T, 0, ((NUM_SUBTABLES * B->n * B->m * cell_bytes) / 4 + 1) * 4);
+    size_t i;
+    for (i = 0; i < NUM_SUBTABLES; ++i) {
+        memset(B->subtables[i], 0, B->n * B->m * cell_bytes);
+    }
 }
 
 
@@ -75,13 +87,37 @@ void bloom_free(bloom_t* B)
 {
     if (B == NULL) return;
 
-    free(B->T);
+    size_t mutex_count = (B->n * B->m + blocks_per_lock - 1) / blocks_per_lock;
+    size_t i, j;
+    for (i = 0; i < NUM_SUBTABLES; ++i) {
+        free(B->subtables[i]);
+
+        for (j = 0; j < mutex_count; ++j) {
+            pthread_mutex_destroy(&B->mutexes[i][j]);
+        }
+        free(B->mutexes[i]);
+    }
+
     free(B);
 }
 
 
-
-unsigned int bloom_get(bloom_t* B, kmer_t x)
+/* Find the subtable i and cell j containing the given key x.
+ *
+ * Args:
+ *   B: A bloom fliter.
+ *   x: The kmer to finde.
+ *   i_: If located, the index of the subtable is output here.
+ *   j_: If located, the offset into the subtable is output here.
+ *   locket_mutex: If the find was successful, this is set to a locked mutex
+ *                  protecting the location of the key. The caller is
+ *                  responsible for unlocking.
+ * Returns:
+ *   true if the key was found.
+ */
+static bool bloom_find(const bloom_t* B, kmer_t x,
+                       size_t* i_, size_t* j_,
+                       pthread_mutex_t** locked_mutex)
 {
     const size_t bytes_per_bucket = B->m * cell_bytes;
 
@@ -93,108 +129,59 @@ unsigned int bloom_get(bloom_t* B, kmer_t x)
     size_t i;
     for (i = 0; i < NUM_SUBTABLES; ++i) {
         h1 = hs[i] = kmer_hash_mix(h0, h1);
-        hs[i] = (hs[i] % B->n) * bytes_per_bucket;
-        prefetch(B->subtable[i] + hs[i], 0, 0);
+        hs[i] %= B->n;
+        prefetch(&B->subtables[i][hs[i] * bytes_per_bucket], 0, 0);
+        prefetch(&B->mutexes[i][hs[i] / blocks_per_lock], 0, 0);
     }
 
-    uint8_t* c;
-    uint8_t* c_end;
+    uint8_t *c, *c_start, *c_end;
     for (i = 0; i < NUM_SUBTABLES; ++i) {
+        *locked_mutex = &B->mutexes[i][hs[i] / blocks_per_lock];
+        pthread_mutex_lock(*locked_mutex);
 
-        /* get bucket offset */
-        c = B->subtable[i] + hs[i];
-        c_end = c + bytes_per_bucket;
+        c = c_start = &B->subtables[i][hs[i] * bytes_per_bucket];
+        c_end = c_start + bytes_per_bucket;
 
         /* scan through cells */
         while (c < c_end) {
             if (((*(uint32_t*) c) & fingerprint_mask) == fp) {
-                return get_cell_count(c);
+                *i_ = i;
+                *j_ = c - c_start;
+                return true;
             }
 
             c += cell_bytes;
         }
+
+        pthread_mutex_unlock(*locked_mutex);
     }
 
-    return 0;
+    *locked_mutex = NULL;
+    return false;
 }
 
 
-void bloom_ldec(bloom_t* B, kmer_t x)
+unsigned int bloom_get(bloom_t* B, kmer_t x)
 {
-    const size_t bytes_per_bucket = B->m * cell_bytes;
-
-    uint64_t h1, h0 = kmer_hash(x);
-    uint32_t fp = h0 & (uint64_t) fingerprint_mask;
-    uint64_t hs[NUM_SUBTABLES];
-
-    h1 = h0;
-    size_t i;
-    for (i = 0; i < NUM_SUBTABLES; ++i) {
-        h1 = hs[i] = kmer_hash_mix(h0, h1);
-        hs[i] = (hs[i] % B->n) * bytes_per_bucket;
-        prefetch(B->subtable[i] + hs[i], 1, 0);
+    pthread_mutex_t* mutex;
+    size_t i, j;
+    if (bloom_find(B, x, &i, &j, &mutex)) {
+        size_t count = get_cell_count(&B->subtables[i][j]);
+        pthread_mutex_unlock(mutex);
+        return count;
     }
-
-    uint32_t cnt;
-    uint8_t* c;
-    uint8_t* c_end;
-    for (i = 0; i < NUM_SUBTABLES; ++i) {
-        /* get bucket offset */
-        c = B->subtable[i] + hs[i];
-        c_end = c + bytes_per_bucket;
-
-        /* scan through cells */
-        while (c < c_end) {
-            if (((*(uint32_t*) c) & fingerprint_mask) == fp) {
-                cnt = get_cell_count(c);
-
-                if (cnt <= 1) {
-                    (*(uint32_t*) c) &= ~(fingerprint_mask | counter_mask);
-                }
-                else {
-                    set_cell_count(c, cnt / 2);
-                }
-                return;
-            }
-
-            c += cell_bytes;
-        }
-    }
+    else return 0;
 }
 
 
 void bloom_del(bloom_t* B, kmer_t x)
 {
-    const size_t bytes_per_bucket = B->m * cell_bytes;
-
-    uint64_t h1, h0 = kmer_hash(x);
-    uint32_t fp = h0 & (uint64_t) fingerprint_mask;
-    uint64_t hs[NUM_SUBTABLES];
-
-    h1 = h0;
-    size_t i;
-    for (i = 0; i < NUM_SUBTABLES; ++i) {
-        h1 = hs[i] = kmer_hash_mix(h0, h1);
-        hs[i] = (hs[i] % B->n) * bytes_per_bucket;
-        prefetch(B->subtable[i] + hs[i], 1, 0);
-    }
-
-    uint8_t* c;
-    uint8_t* c_end;
-    for (i = 0; i < NUM_SUBTABLES; ++i) {
-        /* get bucket offset */
-        c = B->subtable[i] + hs[i];
-        c_end = c + bytes_per_bucket;
-
-        /* scan through cells */
-        while (c < c_end) {
-            if (((*(uint32_t*) c) & fingerprint_mask) == fp) {
-                (*(uint32_t*) c) &= ~(fingerprint_mask | counter_mask);
-                return;
-            }
-
-            c += cell_bytes;
-        }
+    pthread_mutex_t* mutex;
+    size_t i, j;
+    if (bloom_find(B, x, &i, &j, &mutex)) {
+        uint32_t* c = (uint32_t*) &B->subtables[i][j];
+        *c &= ~(fingerprint_mask | counter_mask);
+        pthread_mutex_unlock(mutex);
     }
 }
 
@@ -205,14 +192,25 @@ unsigned int bloom_inc(bloom_t* B, kmer_t x)
 }
 
 
+
+/* Add d to the count for the key x.
+ *
+ * Args:
+ *   B: The bloom filter.
+ *   x: A key to increase.
+ *   d: Delta by which to increase the key's count.
+ *
+ * Returns:
+ *   The new count for the cell, or 0 if there was not space to place it.
+ */
 unsigned int bloom_add(bloom_t* B, kmer_t x, unsigned int d)
 {
+    /* We can't quite use bloom_find here since we have to keep track of
+     * candidate cells, and more importantly, keep them locked. */
+
     const size_t bytes_per_bucket = B->m * cell_bytes;
 
     uint64_t h1, h0 = kmer_hash(x);
-
-    /* compute all the hashes up front, this given an opportunity
-     * to prefetch and hopefully avoid a few cache misses. */
     uint32_t fp = h0 & (uint64_t) fingerprint_mask;
     uint64_t hs[NUM_SUBTABLES];
 
@@ -220,36 +218,48 @@ unsigned int bloom_add(bloom_t* B, kmer_t x, unsigned int d)
     size_t i;
     for (i = 0; i < NUM_SUBTABLES; ++i) {
         h1 = hs[i] = kmer_hash_mix(h0, h1);
-        hs[i] = (hs[i] % B->n) * bytes_per_bucket;
-        prefetch(B->subtable[i] + hs[i], 1, 0);
+        hs[i] %= B->n;
+        prefetch(&B->subtables[i][hs[i] * bytes_per_bucket], 0, 0);
+        prefetch(&B->mutexes[i][hs[i] / blocks_per_lock], 0, 0);
     }
-
-    uint32_t g;
-    uint32_t cnt;
 
     uint8_t* cells[NUM_SUBTABLES];
     size_t bucket_sizes[NUM_SUBTABLES];
+    pthread_mutex_t* locked_mutexes[NUM_SUBTABLES];
+    memset(locked_mutexes, 0, NUM_SUBTABLES * sizeof(pthread_mutex_t*));
 
-    uint8_t *c0, *c, *c_end;
+    uint32_t count;
+    uint8_t *c, *c_start, *c_end;
+    uint32_t cell_fp;
     for (i = 0; i < NUM_SUBTABLES; ++i) {
+        locked_mutexes[i] = &B->mutexes[i][hs[i] / blocks_per_lock];
+        pthread_mutex_lock(locked_mutexes[i]);
 
-        /* get bucket offset */
-        c0 = c = B->subtable[i] + hs[i];
-        c_end = c + bytes_per_bucket;
+        c = c_start = &B->subtables[i][hs[i] * bytes_per_bucket];
+        c_end = c_start + bytes_per_bucket;
 
-        /* scan through cells */
         while (c < c_end) {
-            g = (*(uint32_t*) c) & fingerprint_mask;
+            cell_fp = (*(uint32_t*) c) & fingerprint_mask;
 
-            if (g == fp) {
-                cnt = get_cell_count(c);
-                if (cnt + d < counter_mask) set_cell_count(c, cnt + d);
+            /* Key found. */
+            if (cell_fp == fp) {
+                count = get_cell_count(c);
+                if (count + d < counter_mask) set_cell_count(c, count + d);
                 else set_cell_count(c, counter_mask);
-                return cnt + d;
+
+                size_t k;
+                for (k = 0; k <= i; ++k) {
+                    if (locked_mutexes[i]) {
+                        pthread_mutex_unlock(locked_mutexes[k]);
+                    }
+                }
+
+                return count + d;
             }
-            else if (g == 0) {
+            /* Candidate cell found. */
+            else if (cell_fp == 0) {
                 cells[i] = c;
-                bucket_sizes[i] = (c - c0) / cell_bytes;
+                bucket_sizes[i] = (c - c_start) / cell_bytes;
                 break;
             }
 
@@ -260,10 +270,13 @@ unsigned int bloom_add(bloom_t* B, kmer_t x, unsigned int d)
         if (c == c_end) {
             cells[i] = NULL;
             bucket_sizes[i] = B->m;
+            pthread_mutex_unlock(locked_mutexes[i]);
+            locked_mutexes[i] = NULL;
         }
     }
 
-    /* find the smallest bucket, breaking ties to the left */
+    /* Find the least-full bucket, breaking ties to the left. (i.e., "d-left"
+     * hashing). */
     size_t i_min = NUM_SUBTABLES;
     size_t min_bucket_size = B->m;
     for (i = 0; i < NUM_SUBTABLES && min_bucket_size > 0; ++i) {
@@ -273,13 +286,20 @@ unsigned int bloom_add(bloom_t* B, kmer_t x, unsigned int d)
         }
     }
 
+    /* Insert if a suitable cell was found. */
+    count = 0;
     if (i_min < NUM_SUBTABLES) {
         if (d > counter_mask) d = counter_mask;
         (*(uint32_t*) cells[i_min]) = fp | d; // figngerprint & count
-        return 1;
+        count = d;
     }
 
-    return 0; // no space for insertion
+    /* Unlock the mutexes. */
+    for (i = 0; i < NUM_SUBTABLES; ++i) {
+        if (locked_mutexes[i]) pthread_mutex_unlock(locked_mutexes[i]);
+    }
+
+    return count;
 }
 
 
