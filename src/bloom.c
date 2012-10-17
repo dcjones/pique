@@ -74,6 +74,30 @@ bloom_t* bloom_alloc(size_t n, size_t m)
 }
 
 
+bloom_t* bloom_copy(const bloom_t* B)
+{
+    bloom_t* C = malloc_or_die(sizeof(bloom_t));
+    C->n = B->n;
+    C->m = B->m;
+
+    size_t subtable_size = C->n * C->m * cell_bytes;
+    size_t mutex_count = (C->n * C->m + blocks_per_lock - 1) / blocks_per_lock;
+
+    size_t i, j;
+    for (i = 0; i < NUM_SUBTABLES; ++i) {
+        C->subtables[i] = malloc_or_die(subtable_size);
+        memcpy(C->subtables[i], B->subtables[i], subtable_size);
+
+        C->mutexes[i] = malloc_or_die(mutex_count * sizeof(pthread_mutex_t));
+        for (j = 0; j < mutex_count; ++j) {
+            pthread_mutex_init_or_die(&C->mutexes[i][j], NULL);
+        }
+    }
+
+    return C;
+}
+
+
 void bloom_clear(bloom_t* B)
 {
     size_t i;

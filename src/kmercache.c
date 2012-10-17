@@ -26,9 +26,6 @@ kmercache_t* kmercache_alloc(size_t n)
         pthread_mutex_init_or_die(&C->mutexes[i], NULL);
     }
 
-    C->rng = rng_alloc(12345);
-    pthread_mutex_init_or_die(&C->rng_mutex, NULL);
-
     return C;
 }
 
@@ -41,13 +38,11 @@ void kmercache_free(kmercache_t* C)
     }
     free(C->mutexes);
     free(C->xs);
-    rng_free(C->rng);
-    pthread_mutex_destroy(&C->rng_mutex);
     free(C);
 }
 
 
-uint32_t kmercache_inc(kmercache_t* C, kmer_t x)
+uint32_t kmercache_inc(kmercache_t* C, rng_t* rng, kmer_t x)
 {
     uint64_t i = kmer_hash(x) % C->n;
     uint32_t count = 0;
@@ -59,9 +54,7 @@ uint32_t kmercache_inc(kmercache_t* C, kmer_t x)
     }
     else {
         double pr = pow(base_rep_pr, (double) C->xs[i].count);
-        pthread_mutex_lock(&C->rng_mutex);
-        double r = rng_get_double(C->rng);
-        pthread_mutex_unlock(&C->rng_mutex);
+        double r = rng_get_double(rng);
         if (r < pr) {
             C->xs[i].x = x;
             count = C->xs[i].count = 1;

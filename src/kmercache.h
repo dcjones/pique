@@ -58,7 +58,7 @@ void kmercache_free(kmercache_t* C);
  *   The new count associated with the key, which can be 0 if the key could not
  *   be inserted.
  */
-uint32_t kmercache_inc(kmercache_t* C, kmer_t x);
+uint32_t kmercache_inc(kmercache_t* C, rng_t* rng, kmer_t x);
 
 #endif
 

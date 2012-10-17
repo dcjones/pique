@@ -11,4 +11,5 @@ pique_SOURCES = pique.c \
 				crc64_table_be.h crc64_table_le.h \
                 fastq.h fastq.c \
                 kmercache.h kmercache.c \
-                rng.h rng.c
+                rng.h rng.c \
+                mmio.h mmio.c
