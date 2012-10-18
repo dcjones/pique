@@ -170,7 +170,7 @@ static bool bloom_find(const bloom_t* B, kmer_t x,
         while (c < c_end) {
             if (((*(uint32_t*) c) & fingerprint_mask) == fp) {
                 *i_ = i;
-                *j_ = c - c_start;
+                *j_ = c - B->subtables[i];
                 return true;
             }
 

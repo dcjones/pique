@@ -161,7 +161,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    dbg_dump(G, stdout);
+    dbg_dump(G, stdout, num_threads);
 
     pthread_mutex_destroy(&f_mutex);
     dbg_free(G);

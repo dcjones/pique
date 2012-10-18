@@ -10,8 +10,8 @@
  * A probabalistic de bruijn graph implemented with a dlcbf.
  */
 
-#ifndef PIQUE_DEBRUIJN
-#define PIQUE_DEBRUIJN
+#ifndef PIQUE_DBG
+#define PIQUE_DBG
 
 #include "twobit.h"
 #include "rng.h"
@@ -38,7 +38,7 @@ void dbg_add_twobit_seq(dbg_t* G, rng_t* rng, const twobit_t* seq);
 
 
 /* Dump the graph to a readable file. */
-void dbg_dump(const dbg_t* G, FILE* fout);
+void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads);
 
 
 #endif

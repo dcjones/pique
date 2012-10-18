@@ -1,10 +1,12 @@
 
 #include <assert.h>
+#include <inttypes.h>
 #include <string.h>
 
 #include "bloom.h"
 #include "dbg.h"
 #include "kmercache.h"
+#include "kmerset.h"
 #include "misc.h"
 #include "mmio.h"
 
@@ -68,11 +70,8 @@ static bool kmerstack_pop(kmerstack_t* S, kmer_t* x)
 /* An edge used for dbg_dump. */
 typedef struct edge_t_
 {
-    /* i and j are indexes into dlcbf, rather than kmers, to save space.
-     * In most analysis we may want to do with the graph, it doesn't really
-     * matter what the kmers are. */
-    uint32_t i;
-    uint32_t j;
+    kmer_t u;
+    kmer_t v;
     uint16_t count;
 } edge_t;
 
@@ -105,25 +104,26 @@ static void edgestack_push(edgestack_t* S, const edge_t* e)
         S->es = realloc_or_die(S->es, S->size * sizeof(edge_t));
     }
 
-    S->es[S->n].i = e->i;
-    S->es[S->n].j = e->j;
+    S->es[S->n].u = e->u;
+    S->es[S->n].v = e->v;
     S->es[S->n].count = e->count;
     ++S->n;
 }
 
 
+#if 0
 static bool edgestack_pop(edgestack_t* S, edge_t* e)
 {
     if (S->n == 0) return false;
 
     --S->n;
-    e->i = S->es[S->n].i;
-    e->j = S->es[S->n].j;
+    e->u = S->es[S->n].u;
+    e->v = S->es[S->n].v;
     e->count = S->es[S->n].count;
 
     return true;
-
 }
+#endif
 
 
 /* I'm fixing cells per block. It's not obvious the effect of changing it, so I
@@ -157,7 +157,7 @@ dbg_t* dbg_alloc(size_t n, size_t k)
     size_t num_buckets = n / 4 / cells_per_bucket; /* assuming 4 subtables. */
     G->B = bloom_alloc(num_buckets , cells_per_bucket);
     G->k = k;
-    G->mask = (1 << (2 * k)) - 1;
+    G->mask = kmer_mask(k);
     G->seeds = kmercache_alloc(max_seeds);
     return G;
 }
@@ -198,34 +198,99 @@ static int kmer_cache_cell_cmp(const void* a, const void* b)
 }
 
 
-/* No, theres a big problem with this: because we are launching many threads,
- * nondeterminism becomes an issue when doing two passes. We might count n
- * edges once and n' != n another time depending on how the threads are
- * executed.
- *
- * Solution?
- * One solution is to not make two passes, but build up a list of edges.
- * Ok, I guess that's what we have to do.
- */
-
-
 /* One thread traversing the graph. */
 typedef struct dbg_dump_thread_ctx_t_
 {
+    bloom_t* B;
     kmerstack_t* seeds;
-
+    size_t k;
 } dbg_dump_thread_ctx_t;
 
+
+/* A helper function used by dbg_dump_thread.
+ *
+ * Find all out-edges from the given k-mer, push to edges, and push discovered
+ * nodes to S.
+ * */
+static void enumerate_out_edges(kmer_t u, size_t k,
+                                bloom_t* B,
+                                kmerstack_t* S,
+                                edgestack_t* edges)
+{
+    kmer_t mask = kmer_mask(k);
+    uint32_t count;
+    edge_t e;
+    e.u = u;
+    kmer_t v, x;
+    for (x = 0; x < 4; ++x) {
+        v = kmer_canonical(((u << 2) | x) & mask, k);
+        count = bloom_get(B, v);
+        if (count > 0) {
+            e.v = v;
+            e.count = count;
+            edgestack_push(edges, &e);
+            kmerstack_push(S, v);
+        }
+    }
+}
+
+
+/* A helper function used by dbg_dump_thread.
+ *
+ * Find all in-edges from the given k-mer, push to edges, and push discovered
+ * nodes to S.
+ * */
+static void enumerate_in_edges(kmer_t v, size_t k, uint32_t v_count,
+                               bloom_t* B, kmerstack_t* S, edgestack_t* edges)
+{
+    kmer_t mask = kmer_mask(k);
+    uint32_t u_count;
+    edge_t e;
+    e.v = v;
+    e.count = v_count;
+    kmer_t u, x;
+    for (x = 0; x < 4; ++x) {;
+        u = kmer_canonical(((u >> 2) | (x << (2*(k-1)))) & mask, k);
+        u_count = bloom_get(B, u);
+        if (u_count > 0) {
+            e.u = u;
+            edgestack_push(edges, &e);
+            kmerstack_push(S, v);
+        }
+    }
+}
+
+
+/* A de bruijn graph traversal thread.
+ *
+ * Eeach thread starts from a seed and performs (essentially) depth-first
+ * traversal, deleting nodes as it goes and pushing edges onto a stack. */
 static void* dbg_dump_thread(void* arg)
 {
     dbg_dump_thread_ctx_t* ctx = (dbg_dump_thread_ctx_t*) arg;
     edgestack_t* edges = edgestack_alloc();
     kmerstack_t* S = kmerstack_alloc();
 
-    kmer_t x;
-    while (kmerstack_pop(ctx->seeds, &x)) {
-        /* TODO: push kmers to S for forward traversal. */
-        /* TODO: push kmers to S for backwards traversal. */
+    uint32_t u_count;
+    kmer_t u, u_rc;
+    while (kmerstack_pop(ctx->seeds, &u)) {
+        u = kmer_canonical(u, ctx->k);
+        do {
+            u_count = bloom_get(ctx->B, u);
+            if (u_count == 0) continue;
+
+            u_rc = kmer_revcomp(u, ctx->k);
+
+            /* TODO: We need a way to avoid pushing the same edge  twice. */
+
+            enumerate_out_edges(u, ctx->k, ctx->B, S, edges);
+            enumerate_out_edges(u_rc, ctx->k, ctx->B, S, edges);
+
+            enumerate_in_edges(u, ctx->k, u_count, ctx->B, S, edges);
+            enumerate_in_edges(u_rc, ctx->k, u_count, ctx->B, S, edges);
+
+            bloom_del(ctx->B, u);
+        } while (kmerstack_pop(S, &u));
     }
 
     kmerstack_free(S);
@@ -233,7 +298,7 @@ static void* dbg_dump_thread(void* arg)
 }
 
 
-void dbg_dump(const dbg_t* G, FILE* fout)
+void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads)
 {
     /* Dump seeds and sort for best-first traversal. */
     kmercache_cell_t* seeds = malloc_or_die(G->seeds->n * sizeof(kmercache_cell_t));
@@ -243,10 +308,6 @@ void dbg_dump(const dbg_t* G, FILE* fout)
     /* We make two traversals of the graph. On the first we count the number of
      * edges and nodes, and on the second we output edges and nodes. */
 
-    /* Pass 1 */
-    size_t edge_count = 0;
-    size_t node_count = 0;
-
     kmerstack_t* S = kmerstack_alloc();
 
     size_t i;
@@ -254,39 +315,59 @@ void dbg_dump(const dbg_t* G, FILE* fout)
         if (seeds[i].count > 0) kmerstack_push(S, seeds[i].x);
     }
 
-    /* Ok, now we need to start t threads, each thread is going to pop nodes
-     * from the stack, query the bloom filter, and push nodes back onto the
-     * stack.
-     *
-     * If there proves to be too much contention, each thread could maintain its
-     * own stack and only draw from the global one when its stack is empty.
-     *
-     * Yeah, that's good.
-     * */
+    pthread_t* threads = malloc_or_die(num_threads * sizeof(pthread_t));
+    edgestack_t** edges = malloc_or_die(num_threads * sizeof(edgestack_t*));
+    dbg_dump_thread_ctx_t ctx;
+    ctx.B = G->B;
+    ctx.seeds = S;
+    ctx.k = G->k;
 
+    for (i = 0; i < num_threads; ++i) {
+        pthread_create(&threads[i], NULL, dbg_dump_thread, (void*) &ctx);
+    }
+
+    for (i = 0; i < num_threads; ++i) {
+        pthread_join(threads[i], (void**) &edges[i]);
+    }
+
+    /* Hash k-mers present in the edge list to assign matrix indexes */
+    size_t j;
+    size_t edge_count = 0;
+    kmerset_t* H = kmerset_alloc();
+    for (i = 0; i < num_threads; ++i) {
+        for (j = 0; j < edges[i]->n; ++j) {
+            kmerset_add(H, edges[i]->es[j].u);
+            kmerset_add(H, edges[i]->es[j].v);
+        }
+        edge_count += edges[i]->n;
+    }
+
+    size_t node_count = kmerset_size(H);
 
     MM_typecode matcode;
     mm_initialize_typecode(&matcode);
     mm_set_matrix(&matcode);
     mm_set_coordinate(&matcode);
     mm_set_integer(&matcode);
-    mm_set_symmetric(&matcode);
     mm_write_banner(fout, matcode);
     mm_write_mtx_crd_size(fout, node_count, node_count, edge_count);
 
-
-
-    /* Pass 2 */
-
-    for (i = 0; i < G->seeds->n; ++i) {
-        if (seeds[i].count > 0) kmerstack_push(S, seeds[i].x);
+    unsigned int u_idx, v_idx;
+    for (i = 0; i < num_threads; ++i) {
+        for (j = 0; j < edges[i]->n; ++j) {
+            u_idx = kmerset_get(H, edges[i]->es[j].u);
+            v_idx = kmerset_get(H, edges[i]->es[j].v);
+            assert(u_idx > 0);
+            assert(v_idx > 0);
+            fprintf(fout, "%u %u %"PRIu16"\n",
+                    u_idx, v_idx, edges[i]->es[j].count);
+        }
     }
 
-    /* TODO: launch traversal threads that will write edges to stdout.
-     *
-     */
 
-
+    kmerset_free(H);
+    free(edges);
+    free(threads);
     kmerstack_free(S);
     free(seeds);
 }
