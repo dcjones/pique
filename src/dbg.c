@@ -221,15 +221,16 @@ static void enumerate_out_edges(kmer_t u, size_t k,
     uint32_t count;
     edge_t e;
     e.u = u;
-    kmer_t v, x;
+    kmer_t v, vc, x;
     for (x = 0; x < 4; ++x) {
         v = ((u << 2) | x) & mask;
-        count = bloom_get(B, kmer_canonical(v, k));
+        vc = kmer_canonical(v, k);
+        count = bloom_get(B, vc);
         if (count > 0) {
             e.v = v;
             e.count = count;
             edgestack_push(edges, &e);
-            kmerstack_push(S, v);
+            kmerstack_push(S, vc);
         }
     }
 }
@@ -248,14 +249,15 @@ static void enumerate_in_edges(kmer_t v, size_t k, uint32_t v_count,
     edge_t e;
     e.v = v;
     e.count = v_count;
-    kmer_t u, x;
+    kmer_t u, uc, x;
     for (x = 0; x < 4; ++x) {;
         u = ((u >> 2) | (x << (2*(k-1)))) & mask;
-        u_count = bloom_get(B, kmer_canonical(u, k));
+        uc = kmer_canonical(u, k);
+        u_count = bloom_get(B, uc);
         if (u_count > 0) {
             e.u = u;
             edgestack_push(edges, &e);
-            kmerstack_push(S, v);
+            kmerstack_push(S, uc);
         }
     }
 }
