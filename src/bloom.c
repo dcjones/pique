@@ -273,7 +273,7 @@ unsigned int bloom_add(bloom_t* B, kmer_t x, unsigned int d)
 
                 size_t k;
                 for (k = 0; k <= i; ++k) {
-                    if (locked_mutexes[i]) {
+                    if (locked_mutexes[k]) {
                         pthread_mutex_unlock(locked_mutexes[k]);
                     }
                 }
