@@ -11,8 +11,10 @@
 void print_help(FILE* fout)
 {
     fprintf(fout,
-"Usage: pique [option]... [file]...\n"
+"Usage: pique [option]... [file]... > out.mm\n"
 "Assemble short sequencing reads into contigs, take no prisoners.\n\n"
+"By default, output is an adjacency matrix representation of the\n"
+"De Bruijn graph in matrix market exchange format.\n\n"
 "Options:\n"
 "  -n                   maxmimum number of unique k-mers (larger numbers use\n"
 "                       more memory but allow potentially more accurate assembly\n"

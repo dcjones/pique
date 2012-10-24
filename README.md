@@ -18,9 +18,14 @@ git repository and run `autoreconf -i && ./configure && make install`.
 
 ## Usage
 
-Simple running `pique reads.fastq > contigs.fasta` will build a de Bruijn graph
-from the reads, then traverse it, outputing contigs in the fasta format to
-`contigs.fasta`.
+Running `pique reads.fastq > output.mm` will build a de Bruijn graph from the
+reads, then output a sparse adjacency matrix in [Matrix Market
+Exchange](http://math.nist.gov/MatrixMarket/formats.html) format.
 
 There are a number of options which you can read about with `pique --help`.
+
+Most importantly `-t T` will run pique concurrently on `T`, threads, and `-k K`
+controls the k-mer size of the de Bruijn graph.
+
+
 
