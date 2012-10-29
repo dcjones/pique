@@ -14,3 +14,6 @@ pique_SOURCES = pique.c \
                 rng.h rng.c \
                 mmio.h mmio.c \
                 kmerset.h kmerset.c
+
+pique_LDADD = -lm
+
