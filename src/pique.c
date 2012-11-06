@@ -16,6 +16,8 @@ void print_help(FILE* fout)
 "By default, output is an adjacency matrix representation of the\n"
 "De Bruijn graph in matrix market exchange format.\n\n"
 "Options:\n"
+"  --mm                 output an adjacency matrix in matrix market format\n"
+"  --hb                 output an adjacency matrix in harwell-boeing format\n"
 "  -n                   maxmimum number of unique k-mers (larger numbers use\n"
 "                       more memory but allow potentially more accurate assembly\n"
 "                       (default: 100000000)\n"
@@ -67,6 +69,9 @@ int main(int argc, char* argv[])
 {
     int opt, opt_idx;
 
+    /* Output format. */
+    int fmt = ADJ_GRAPH_FMT_HB;
+
     /* Size of the graph structure. */
     size_t n = 100000000;
 
@@ -76,8 +81,10 @@ int main(int argc, char* argv[])
     /* Number of threads. */
     size_t num_threads = 1;
 
-    static struct option long_options[] =
+    struct option long_options[] =
     {
+        {"mm",      no_argument,       &fmt, ADJ_GRAPH_FMT_MM},
+        {"hb",      no_argument,       &fmt, ADJ_GRAPH_FMT_HB},
         {"threads", required_argument, NULL, 't'},
         {"verbose", no_argument,       NULL, 'v'},
         {"help",    no_argument,       NULL, 'h'},
@@ -111,6 +118,9 @@ int main(int argc, char* argv[])
 
             case '?':
                 return 1;
+
+            case 0:
+                break;
 
             default:
                 abort();
@@ -163,7 +173,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    dbg_dump(G, stdout, num_threads);
+    dbg_dump(G, stdout, num_threads, fmt);
 
     pthread_mutex_destroy(&f_mutex);
     dbg_free(G);

@@ -300,7 +300,111 @@ static void* dbg_dump_thread(void* arg)
 }
 
 
-void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads)
+/* Write a sparse adjacency matrix in matrix market exchange format. */
+static void write_sparse_mm(FILE* fout,
+                            size_t node_count,
+                            size_t edge_count,
+                            const kmerset_t* H,
+                            edgestack_t* const* edges,
+                            size_t num_threads)
+{
+    fputs("%%MatrixMarket matrix coordinate integer general\n", fout);
+    fprintf(fout, "%zu %zu %zu\n", node_count, node_count, edge_count);
+    unsigned int i, j, u_idx, v_idx;
+    for (i = 0; i < num_threads; ++i) {
+        for (j = 0; j < edges[i]->n; ++j) {
+            u_idx = kmerset_get(H, edges[i]->es[j].u);
+            v_idx = kmerset_get(H, edges[i]->es[j].v);
+            assert(u_idx > 0);
+            assert(v_idx > 0);
+            fprintf(fout, "%u %u %"PRIu16"\n",
+                    u_idx, v_idx, edges[i]->es[j].count);
+        }
+    }
+}
+
+
+typedef struct edgepair_t_
+{
+    uint32_t u, v;
+    int count;
+} edgepair_t;
+
+
+static int edgepair_cmp(const void* a_, const void* b_)
+{
+    const edgepair_t* a = (edgepair_t*) a_;
+    const edgepair_t* b = (edgepair_t*) b_;
+
+    if (a->v != b->v) {
+        return (long) a->v - (long) b->v;
+    }
+    else {
+        return (long) a->u - (long) b->u;
+    }
+}
+
+
+/* Write a sparse adjacency matrix in harwell-boeing format. */
+static void write_sparse_hb(FILE* fout,
+                            size_t node_count,
+                            size_t edge_count,
+                            const kmerset_t* H,
+                            edgestack_t* const* edges,
+                            size_t num_threads)
+{
+    /* We need to make a big array of (i,j) edge pairs then sort by j to output
+     * in column format. */
+    edgepair_t* pairs = malloc_or_die(edge_count * sizeof(edgepair_t));
+    size_t k = 0;
+    size_t i, j;
+    for (i = 0; i < num_threads; ++i) {
+        for (j = 0; j < edges[i]->n; ++j, ++k) {
+            pairs[k].u = kmerset_get(H, edges[i]->es[j].u);
+            pairs[k].v = kmerset_get(H, edges[i]->es[j].v);
+            pairs[k].count = edges[i]->es[j].count;
+        }
+    }
+
+    qsort(pairs, edge_count, sizeof(edgepair_t), edgepair_cmp);
+
+    fputs("pique generated de bruijn graph adjacency matrix                        padjmat \n", fout);
+    fprintf(fout, "%14zu%14zu%14zu%14zu%14zu\n",
+            node_count + edge_count + edge_count + 1,
+            node_count + 1, edge_count, edge_count, (size_t) 0);
+    fprintf(fout, "RUA%25zu%14zu%14zu%14zu\n",
+            node_count, node_count, edge_count, (size_t) 0);
+    fprintf(fout, "%16s%16s%20s%20s\n", "(1I11)", "(1I11)", "(1E9.0)", "");
+
+    /* Output pointers to columns */
+    size_t col;
+    for (i = 0, col = 0; i < edge_count; ++i) {
+        while (pairs[i].v >= col) {
+            fprintf(fout, "%11zu\n", i + 1);
+            ++col;
+        }
+    }
+    for (; col <= node_count; ++col) {
+        fprintf(fout, "%11zu\n", node_count + 1);
+    }
+
+    /* Output row indexes */
+    for (i = 0; i < edge_count; ++i) {
+        fprintf(fout, "%11zu\n", (size_t) pairs[i].u);
+    }
+
+
+    /* Output data */
+    for (i = 0; i < edge_count; ++i) {
+        fprintf(fout, "%9d\n", pairs[i].count);
+    }
+
+    free(pairs);
+}
+
+
+void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
+              adj_graph_fmt_t fmt)
 {
     /* Dump seeds and sort for best-first traversal. */
     kmercache_cell_t* seeds = malloc_or_die(G->seeds->n * sizeof(kmercache_cell_t));
@@ -346,26 +450,12 @@ void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads)
 
     size_t node_count = kmerset_size(H);
 
-    MM_typecode matcode;
-    mm_initialize_typecode(&matcode);
-    mm_set_matrix(&matcode);
-    mm_set_coordinate(&matcode);
-    mm_set_integer(&matcode);
-    mm_write_banner(fout, matcode);
-    mm_write_mtx_crd_size(fout, node_count, node_count, edge_count);
-
-    unsigned int u_idx, v_idx;
-    for (i = 0; i < num_threads; ++i) {
-        for (j = 0; j < edges[i]->n; ++j) {
-            u_idx = kmerset_get(H, edges[i]->es[j].u);
-            v_idx = kmerset_get(H, edges[i]->es[j].v);
-            assert(u_idx > 0);
-            assert(v_idx > 0);
-            fprintf(fout, "%u %u %"PRIu16"\n",
-                    u_idx, v_idx, edges[i]->es[j].count);
-        }
+    if (fmt == ADJ_GRAPH_FMT_HB) {
+        write_sparse_hb(fout, node_count, edge_count, H, edges, num_threads);
     }
-
+    else if (fmt == ADJ_GRAPH_FMT_MM) {
+        write_sparse_mm(fout, node_count, edge_count, H, edges, num_threads);
+    }
 
     kmerset_free(H);
     free(edges);

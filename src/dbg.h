@@ -38,7 +38,13 @@ void dbg_add_twobit_seq(dbg_t* G, rng_t* rng, const twobit_t* seq);
 
 
 /* Dump the graph to a readable file. */
-void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads);
+typedef enum {
+    ADJ_GRAPH_FMT_MM,
+    ADJ_GRAPH_FMT_HB,
+} adj_graph_fmt_t;
+
+void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
+              adj_graph_fmt_t fmt);
 
 
 #endif
