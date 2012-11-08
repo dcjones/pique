@@ -8,7 +8,6 @@
 #include "kmercache.h"
 #include "kmerset.h"
 #include "misc.h"
-#include "mmio.h"
 
 
 /* Kmer stack, used for traversals of the graph. */
