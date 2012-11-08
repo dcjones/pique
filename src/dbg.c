@@ -251,7 +251,7 @@ static void enumerate_in_edges(kmer_t v, size_t k, uint32_t v_count,
     e.count = v_count;
     kmer_t u, uc, x;
     for (x = 0; x < 4; ++x) {;
-        u = ((u >> 2) | (x << (2*(k-1)))) & mask;
+        u = ((v >> 2) | (x << (2*(k-1)))) & mask;
         uc = kmer_canonical(u, k);
         u_count = bloom_get(B, uc);
         if (u_count > 0) {
@@ -283,7 +283,8 @@ static void* dbg_dump_thread(void* arg)
 
             u_rc = kmer_revcomp(u, ctx->k);
 
-            /* TODO: We need a way to avoid pushing the same edge  twice. */
+            /* TODO: It's possible here to push the same edge twice.
+             * Is this ever a problem? */
 
             enumerate_out_edges(u, ctx->k, ctx->B, S, edges);
             enumerate_out_edges(u_rc, ctx->k, ctx->B, S, edges);

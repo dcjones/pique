@@ -25,9 +25,6 @@ void print_help(FILE* fout)
 "  -t, --threads        number of threads to use (default: 1)\n"
 "  -h, --help           print this message\n"
 "  -V, --version        display program version\n\n");
-
-    /* TODO: An option to dump the de-bruijn graph rather that producing
-     * contigs. */
 }
 
 
@@ -70,7 +67,7 @@ int main(int argc, char* argv[])
     int opt, opt_idx;
 
     /* Output format. */
-    int fmt = ADJ_GRAPH_FMT_HB;
+    int fmt = ADJ_GRAPH_FMT_MM;
 
     /* Size of the graph structure. */
     size_t n = 100000000;
