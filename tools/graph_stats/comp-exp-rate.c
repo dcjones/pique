@@ -145,11 +145,17 @@ static size_t count_components(const edge_t* es, size_t n, size_t m,
 
 int main(int argc, char* argv[])
 {
+    size_t step_size = 1;
+
     while (1) {
-        int opt = getopt(argc, argv, "h");
+        int opt = getopt(argc, argv, "hs:");
         if (opt == -1) break;
 
         switch (opt) {
+            case 's':
+                step_size = (size_t) strtoul(optarg, NULL, 10);
+                break;
+
             case 'h':
                 print_usage(stdout);
                 return EXIT_SUCCESS;
@@ -204,11 +210,11 @@ int main(int argc, char* argv[])
 
     unsigned int* ds = malloc_or_die(n * sizeof(unsigned int));
     size_t i;
-    for (i = 0; i < E.m; ++i) {
+    for (i = 0; i < E.m; i += step_size) {
         size_t c = count_components(E.es + i, n, E.m - i, ds);
         printf("%zu\n", c);
+        fflush(stdout);
     }
-
 
     free(ds);
     free(E.es);

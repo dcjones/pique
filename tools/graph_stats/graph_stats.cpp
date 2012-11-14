@@ -1,9 +1,10 @@
 
 #include <boost/graph/compressed_sparse_row_graph.hpp>
 #include <boost/graph/connected_components.hpp>
-#include <vector>
-#include <map>
 #include <cstdio>
+#include <cstring>
+#include <map>
+#include <vector>
 
 typedef std::pair<unsigned int, unsigned int> edge_t;
 

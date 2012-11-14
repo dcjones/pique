@@ -6,16 +6,16 @@ CFLAGS=-Wall -Wextra -g -O3
 CXXFLAGS=-Wall -Wextra -g -O3
 
 graph_stats : graph_stats.o
-	clang++ $(CXXFLAGS) -o $@ $^
+	g++ $(CXXFLAGS) -o $@ $^
 
 %.o : %.cc
-	clang++ -c $(CXXFLAGS) -o $@ $^
+	g++ -c $(CXXFLAGS) -o $@ $^
 
 %.o : %.c
-	clang -c $(CFLAGS) -o $@ $^
+	gcc -c $(CFLAGS) -o $@ $^
 
 comp-exp-rate : comp-exp-rate.o
-	clang $(CFLAGS) -o $@ $^
+	gcc $(CFLAGS) -o $@ $^
 
 clean :
 	rm -f graph_stats comp-exp-rate *.o
