@@ -5,6 +5,7 @@
 
 #include "dbg.h"
 #include "fastq.h"
+#include "fasta.h"
 #include "misc.h"
 #include "version.h"
 
@@ -16,7 +17,9 @@ void print_help(FILE* fout)
 "By default, output is an adjacency matrix representation of the\n"
 "De Bruijn graph in matrix market exchange format.\n\n"
 "Options:\n"
-"  --mm                 output an adjacency matrix in matrix market format\n"
+"  --fastq              input is in FASTQ format\n"
+"  --fasta              input is in FASTA format (default)\n"
+"  --mm                 output an adjacency matrix in matrix market format (default)\n"
 "  --hb                 output an adjacency matrix in harwell-boeing format\n"
 "  -n                   maxmimum number of unique k-mers (larger numbers use\n"
 "                       more memory but allow potentially more accurate assembly\n"
@@ -28,8 +31,15 @@ void print_help(FILE* fout)
 }
 
 
+typedef enum {
+    INPUT_FMT_FASTQ,
+    INPUT_FMT_FASTA
+} input_fmt_t;
+
+
 typedef struct pique_ctx_t_
 {
+    input_fmt_t fmt;
     fastq_t* f;
     pthread_mutex_t* f_mutex;
     dbg_t* G;
@@ -46,7 +56,8 @@ void* pique_thread(void* arg)
 
     while (true) {
         pthread_mutex_lock(ctx->f_mutex);
-        r = fastq_read(ctx->f, seq);
+        if (ctx->fmt == INPUT_FMT_FASTA)      r = fasta_read(ctx->f, seq);
+        else if (ctx->fmt == INPUT_FMT_FASTQ) r = fastq_read(ctx->f, seq);
         pthread_mutex_unlock(ctx->f_mutex);
         if (!r) break;
 
@@ -66,8 +77,8 @@ int main(int argc, char* argv[])
 {
     int opt, opt_idx;
 
-    /* Output format. */
-    int fmt = ADJ_GRAPH_FMT_MM;
+    int in_fmt = INPUT_FMT_FASTA;
+    int out_fmt = ADJ_GRAPH_FMT_MM;
 
     /* Size of the graph structure. */
     size_t n = 100000000;
@@ -80,8 +91,10 @@ int main(int argc, char* argv[])
 
     struct option long_options[] =
     {
-        {"mm",      no_argument,       &fmt, ADJ_GRAPH_FMT_MM},
-        {"hb",      no_argument,       &fmt, ADJ_GRAPH_FMT_HB},
+        {"fasta",   no_argument,       &in_fmt, INPUT_FMT_FASTA},
+        {"fastq",   no_argument,       &in_fmt, INPUT_FMT_FASTQ},
+        {"mm",      no_argument,       &out_fmt, ADJ_GRAPH_FMT_MM},
+        {"hb",      no_argument,       &out_fmt, ADJ_GRAPH_FMT_HB},
         {"threads", required_argument, NULL, 't'},
         {"verbose", no_argument,       NULL, 'v'},
         {"help",    no_argument,       NULL, 'h'},
@@ -133,6 +146,7 @@ int main(int argc, char* argv[])
     pthread_t* threads = malloc_or_die(num_threads * sizeof(pthread_t));
 
     pique_ctx_t ctx;
+    ctx.fmt = in_fmt;
     ctx.G = G;
     ctx.f_mutex = &f_mutex;
     size_t i;
@@ -170,7 +184,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    dbg_dump(G, stdout, num_threads, fmt);
+    dbg_dump(G, stdout, num_threads, out_fmt);
 
     pthread_mutex_destroy(&f_mutex);
     dbg_free(G);

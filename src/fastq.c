@@ -98,18 +98,67 @@ void fastq_free(fastq_t* f)
 }
 
 
-typedef enum {
-    FASTQ_STATE_ID1,  /* Reading ID1. */
-    FASTQ_STATE_SEQ,  /* Reading the sequence. */
-    FASTQ_STATE_ID2,  /* Reading ID2. */
-    FASTQ_STATE_QUAL, /* Reading quality scores. */
-} fastq_parser_state_t;
+
+bool fasta_read(fastq_t* f, seq_t* seq)
+{
+    enum {
+        FASTA_STATE_INIT,
+        FASTA_STATE_ID,   /* Reading ID */
+        FASTA_STATE_SEQ,  /* Reading sequence. */
+    } state = FASTA_STATE_INIT;
+
+    seq->id1.n = seq->seq.n = seq->id2.n = seq->qual.n = 0;
+    char* end = f->buf + f->readlen;
+    do {
+        while (f->next < end) {
+            if (f->linestart && f->next[0] == '>') {
+                if (seq->id1.n > 0) return true;
+                state = FASTA_STATE_ID;
+                f->linestart = false;
+                ++f->next;
+                continue;
+            }
+
+            char* u = memchr(f->next, '\n', end - f->next);
+            if (u == NULL) {
+                f->linestart = false;
+                u = end;
+            }
+            else f->linestart = true;
+
+            if (state == FASTA_STATE_ID) {
+                str_append(&seq->id1, f->next, u - f->next);
+                if (f->linestart) state = FASTA_STATE_SEQ;
+            }
+            else if (state == FASTA_STATE_SEQ) {
+                char* v = memchr(f->next, ' ', end - f->next);
+                if (v != NULL && v < u) u = v;
+                str_append(&seq->seq, f->next, u - f->next);
+            }
+
+            f->next = u + 1;
+        }
+
+        /* Try to read more. */
+        f->readlen = fread(f->buf, 1, parser_buf_size, f->file);
+        f->next = f->buf;
+        end = f->buf + f->readlen;
+    } while (f->readlen);
+
+    return false;
+}
 
 
 bool fastq_read(fastq_t* f, seq_t* seq)
 {
+    enum {
+        FASTQ_STATE_ID1,  /* Reading ID1. */
+        FASTQ_STATE_SEQ,  /* Reading the sequence. */
+        FASTQ_STATE_ID2,  /* Reading ID2. */
+        FASTQ_STATE_QUAL, /* Reading quality scores. */
+    } state = FASTQ_STATE_ID1;
+
     seq->id1.n = seq->seq.n = seq->id2.n = seq->qual.n = 0;
-    fastq_parser_state_t state = FASTQ_STATE_ID1;
     char* end = f->buf + f->readlen;
     do {
         while (f->next < end) {

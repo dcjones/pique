@@ -58,7 +58,7 @@ fastq_t* fastq_create(FILE* file);
 void fastq_free(fastq_t*);
 
 
-/* Read one fastq entry.
+/* Read one fastq (fasta, resp.) entry.
  *
  * Args:
  *   f: A fastq_t parser object.
@@ -68,6 +68,7 @@ void fastq_free(fastq_t*);
  *   True if an entry was read, false if end-of-file was reached.
  */
 bool fastq_read(fastq_t* f, seq_t* seq);
+bool fasta_read(fastq_t* f, seq_t* seq);
 
 
 /* Rewind the fastq file.

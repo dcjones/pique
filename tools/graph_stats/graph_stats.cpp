@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
     }
 
     for (j = sizes.begin(); j != sizes.end(); ++j) {
-        fprintf(stderr, "%u\t%u\n", j->first, j->second);
+        printf("%u\t%u\n", j->first, j->second);
     }
 
     return 0;
