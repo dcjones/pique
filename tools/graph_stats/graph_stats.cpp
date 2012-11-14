@@ -52,9 +52,9 @@ int main(int argc, char* argv[])
     unsigned int n, n2, m;
     fscanf(f, "%u %u %u\n", &n, &n2, &m);
 
-    unsigned int u, v;
+    unsigned int u, v, w;
     while ((fgets(buffer, sizeof(buffer), f)) > 0) {
-        sscanf(buffer, "%u %u\n", &u, &v);
+        sscanf(buffer, "%u %u %u\n", &u, &v, &w);
         edges.push_back(std::make_pair(u - 1, v - 1));
         edges.push_back(std::make_pair(v - 1, u - 1));
     }
