@@ -193,7 +193,7 @@ int main(int argc, char* argv[])
     E.es = malloc_or_die(E.size * sizeof(edge_t));
     edge_t e;
 
-    while ((fgets(buffer, sizeof(buffer), f)) > 0) {
+    while (fgets(buffer, sizeof(buffer), f)) {
         sscanf(buffer, "%u %u %u\n", &e.u, &e.v, &e.w);
         e.u -= 1; e.v -= 1; /* make 0-based */
         push_edge(&E, &e);
