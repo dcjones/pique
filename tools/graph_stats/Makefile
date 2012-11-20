@@ -14,7 +14,7 @@ graph_stats : graph_stats.o
 %.o : %.c
 	gcc -c $(CFLAGS) -o $@ $^
 
-comp-exp-rate : comp-exp-rate.o
+comp-exp-rate : comp-exp-rate.o rng.o
 	gcc $(CFLAGS) -o $@ $^
 
 clean :

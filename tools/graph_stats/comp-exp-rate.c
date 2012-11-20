@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rng.h"
+
 
 static void print_usage(FILE* f)
 {
@@ -58,6 +60,21 @@ static void edgecpy(edge_t* a, const edge_t* b)
 }
 
 
+/* randomly shuffle edges */
+static void shuffle(rng_t* rng, edge_t* edges, unsigned long n)
+{
+    unsigned long i, j;
+    edge_t e;
+    for (i = n - 1; i > 0; --i) {
+        j = rng_uniform_int(rng, i + 1);
+        // swap
+        edgecpy(&e, &edges[j]);
+        edgecpy(&edges[j], &edges[i]);
+        edgecpy(&edges[i], &e);
+    }
+}
+
+
 typedef struct
 {
     edge_t* es;  /* edges */
@@ -79,8 +96,8 @@ static void push_edge(edge_array_t* E, const edge_t* e)
 
 
 static int edge_cmp(const void* e1_, const void* e2_) {
-    return (int) ((edge_t*) e1_)->w -
-           (int) ((edge_t*) e2_)->w;
+    return (int) ((edge_t*) e2_)->w -
+           (int) ((edge_t*) e1_)->w;
 }
 
 
@@ -205,6 +222,9 @@ int main(int argc, char* argv[])
         push_edge(&E, &e);
     }
     fclose(f);
+    rng_t* rng = rng_alloc();
+    shuffle(rng, E.es, E.m);
+    rng_free(rng);
     qsort(E.es, E.m, sizeof(edge_t), edge_cmp);
     fprintf(stderr, "done. (%zu edges)\n", E.m);
 
