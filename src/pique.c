@@ -5,7 +5,6 @@
 
 #include "dbg.h"
 #include "fastq.h"
-#include "fasta.h"
 #include "misc.h"
 #include "version.h"
 
