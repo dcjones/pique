@@ -34,7 +34,7 @@ void dbg_free(dbg_t* G);
 
 
 /* Add the k-mers contained in a sequence to the de bruijn graph. */
-void dbg_add_twobit_seq(dbg_t* G, rng_t* rng, const twobit_t* seq);
+void dbg_add_twobit_seq(dbg_t* G, const twobit_t* seq);
 
 
 /* Dump the graph to a readable file. */

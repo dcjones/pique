@@ -101,10 +101,41 @@ static void kmercount_table_add(kmercount_table_t* T, kmer_t x,
         if (T->xs[k].count == 0) {
             T->xs[k].x = x;
             T->xs[k].count = delta;
+            ++T->n;
             break;
         }
         else if (T->xs[k].x == x) {
             T->xs[k].count += delta;
+            break;
+        }
+
+        k = probe(h, ++probe_num) % primes[T->size];
+    }
+
+    pthread_mutex_unlock(&T->mut);
+}
+
+
+static void kmercount_table_set(kmercount_table_t* T, kmer_t x,
+                                uint32_t count, uint32_t h)
+{
+    pthread_mutex_lock(&T->mut);
+
+    if (T->n >= T->max_n) {
+        kmercount_table_expand(T);
+    }
+
+    uint32_t probe_num = 1;
+    uint32_t k = h % primes[T->size];
+    while (true) {
+        if (T->xs[k].count == 0) {
+            T->xs[k].x = x;
+            T->xs[k].count = count;
+            ++T->n;
+            break;
+        }
+        else if (T->xs[k].x == x) {
+            T->xs[k].count = count;
             break;
         }
 
@@ -186,6 +217,17 @@ uint32_t kmercount_get(kmercount_t* C, kmer_t x)
     uint64_t i = (h >> 32) % C->k;
 
     return kmercount_table_get(C->subtables[i], x, (uint32_t) h);
+}
+
+
+void kmercount_set(kmercount_t* C, kmer_t x, uint32_t count)
+{
+    uint64_t h = kmer_hash(x);
+
+    /* totally ad-hoc allocation of k-mers to subtables */
+    uint64_t i = (h >> 32) % C->k;
+
+    kmercount_table_set(C->subtables[i], x, count, (uint32_t) h);
 }
 
 

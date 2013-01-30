@@ -5,8 +5,12 @@
 
 #include "dbg.h"
 #include "kmercount.h"
+#include "kmerheap.h"
 #include "kmerset.h"
 #include "misc.h"
+
+
+static const size_t num_seeds = 50000;
 
 
 /* Kmer stack, used for traversals of the graph. */
@@ -171,6 +175,7 @@ void dbg_add_twobit_seq(dbg_t* G, const twobit_t* seq)
 /* One thread traversing the graph. */
 typedef struct dbg_dump_thread_ctx_t_
 {
+    kmerstack_t* seeds;
     kmercount_t* T;
     size_t k;
 } dbg_dump_thread_ctx_t;
@@ -182,7 +187,7 @@ typedef struct dbg_dump_thread_ctx_t_
  * nodes to S.
  * */
 static void enumerate_out_edges(kmer_t u, size_t k,
-                                bloom_t* B,
+                                kmercount_t* T,
                                 kmerstack_t* S,
                                 edgestack_t* edges)
 {
@@ -194,7 +199,7 @@ static void enumerate_out_edges(kmer_t u, size_t k,
     for (x = 0; x < 4; ++x) {
         v = ((u << 2) | x) & mask;
         vc = kmer_canonical(v, k);
-        count = bloom_get(B, vc);
+        count = kmercount_get(T, vc);
         if (count > 0) {
             e.v = v;
             e.count = count;
@@ -211,7 +216,7 @@ static void enumerate_out_edges(kmer_t u, size_t k,
  * nodes to S.
  * */
 static void enumerate_in_edges(kmer_t v, size_t k, uint32_t v_count,
-                               bloom_t* B, kmerstack_t* S, edgestack_t* edges)
+                               kmercount_t* T, kmerstack_t* S, edgestack_t* edges)
 {
     kmer_t mask = kmer_mask(k);
     uint32_t u_count;
@@ -222,7 +227,7 @@ static void enumerate_in_edges(kmer_t v, size_t k, uint32_t v_count,
     for (x = 0; x < 4; ++x) {;
         u = ((v >> 2) | (x << (2*(k-1)))) & mask;
         uc = kmer_canonical(u, k);
-        u_count = bloom_get(B, uc);
+        u_count = kmercount_get(T, uc);
         if (u_count > 0) {
             e.u = u;
             edgestack_push(edges, &e);
@@ -247,7 +252,7 @@ static void* dbg_dump_thread(void* arg)
     while (kmerstack_pop(ctx->seeds, &u)) {
         u = kmer_canonical(u, ctx->k);
         do {
-            u_count = bloom_get(ctx->B, u);
+            u_count = kmercount_get(ctx->T, u);
             if (u_count == 0) continue;
 
             u_rc = kmer_revcomp(u, ctx->k);
@@ -255,13 +260,13 @@ static void* dbg_dump_thread(void* arg)
             /* TODO: It's possible here to push the same edge twice.
              * Is this ever a problem? */
 
-            enumerate_out_edges(u, ctx->k, ctx->B, S, edges);
-            enumerate_out_edges(u_rc, ctx->k, ctx->B, S, edges);
+            enumerate_out_edges(u, ctx->k, ctx->T, S, edges);
+            enumerate_out_edges(u_rc, ctx->k, ctx->T, S, edges);
 
-            enumerate_in_edges(u, ctx->k, u_count, ctx->B, S, edges);
-            enumerate_in_edges(u_rc, ctx->k, u_count, ctx->B, S, edges);
+            enumerate_in_edges(u, ctx->k, u_count, ctx->T, S, edges);
+            enumerate_in_edges(u_rc, ctx->k, u_count, ctx->T, S, edges);
 
-            bloom_del(ctx->B, u);
+            kmercount_set(ctx->T, u, 0);
         } while (kmerstack_pop(S, &u));
     }
 
@@ -376,34 +381,35 @@ static void write_sparse_hb(FILE* fout,
 void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
               adj_graph_fmt_t fmt)
 {
-    /* Ok, what is the new seeding strategy?
-     * What we want is to take the top-m k-mers while using space proportional
-     * to m. That suggests a fixed size heap. */
-
-    /* Ok, let's fucking do it. */
-    // TODO
-
-
-    /* Dump seeds and sort for best-first traversal. */
-    kmercache_cell_t* seeds = malloc_or_die(G->seeds->n * sizeof(kmercache_cell_t));
-    memcpy(seeds, G->seeds->xs, G->seeds->n * sizeof(kmercache_cell_t));
-    qsort(seeds, G->seeds->n, sizeof(kmercache_cell_t), kmer_cache_cell_cmp);
+    kmerheap_t* seed_heap = kmerheap_alloc(num_seeds);
+    size_t i, j;
+    for (i = 0; i < G->T->k; ++i) {
+        for (j = 0; j < G->T->subtables[i]->size; ++j) {
+            if (G->T->subtables[i]->xs[j].count > 0) {
+                kmerheap_add(seed_heap, G->T->subtables[i]->xs[j].x,
+                             G->T->subtables[i]->xs[j].count);
+            }
+        }
+    }
 
     /* We make two traversals of the graph. On the first we count the number of
      * edges and nodes, and on the second we output edges and nodes. */
 
     kmerstack_t* S = kmerstack_alloc();
 
-    size_t i;
-    for (i = 0; i < G->seeds->n; ++i) {
-        if (seeds[i].count > 0) kmerstack_push(S, seeds[i].x);
+    kmer_t x;
+    uint32_t count;
+    while (kmerheap_pop(seed_heap, &x, &count)) {
+        if (count > 0) {
+            kmerstack_push(S, x);
+        }
     }
+    kmerheap_free(seed_heap);
 
     pthread_t* threads = malloc_or_die(num_threads * sizeof(pthread_t));
     edgestack_t** edges = malloc_or_die(num_threads * sizeof(edgestack_t*));
     dbg_dump_thread_ctx_t ctx;
-    ctx.B = G->B;
-    ctx.seeds = S;
+    ctx.T = G->T;
     ctx.k = G->k;
 
     for (i = 0; i < num_threads; ++i) {
@@ -415,7 +421,6 @@ void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
     }
 
     /* Hash k-mers present in the edge list to assign matrix indexes */
-    size_t j;
     size_t edge_count = 0;
     kmerset_t* H = kmerset_alloc();
     for (i = 0; i < num_threads; ++i) {
@@ -439,7 +444,6 @@ void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
     free(edges);
     free(threads);
     kmerstack_free(S);
-    free(seeds);
 }
 
 

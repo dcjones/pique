@@ -51,7 +51,6 @@ void* pique_thread(void* arg)
     pique_ctx_t* ctx = arg;
     seq_t* seq = seq_create();
     twobit_t* tb = twobit_alloc();
-    rng_t* rng = rng_alloc(1234);
     bool r;
 
     while (true) {
@@ -64,10 +63,9 @@ void* pique_thread(void* arg)
         /* TODO: remove sequences with Ns? */
 
         twobit_copy_str_n(tb, seq->seq.s, seq->seq.n);
-        dbg_add_twobit_seq(ctx->G, rng, tb);
+        dbg_add_twobit_seq(ctx->G, tb);
     }
 
-    rng_free(rng);
     seq_free(seq);
     return NULL;
 }
