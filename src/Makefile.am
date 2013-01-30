@@ -7,10 +7,11 @@ pique_SOURCES = pique.c \
                 kmer.h kmer.c \
                 misc.h misc.c \
                 twobit.h twobit.c \
-				crc64.h crc64.c \
-				crc64_table_be.h crc64_table_le.h \
+                crc64.h crc64.c \
+                crc64_table_be.h crc64_table_le.h \
                 fastq.h fastq.c \
                 kmercache.h kmercache.c \
+                kmercount.h kmercount.c \
                 rng.h rng.c \
                 kmerset.h kmerset.c
 

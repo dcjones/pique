@@ -63,7 +63,7 @@ AC_CONFIG_FILES([Makefile
                  src/version.h
                  tests/Makefile])
 
-AM_CONFIG_HEADER([src/config.h])
+AC_CONFIG_HEADER([src/config.h])
 
 AC_OUTPUT
 
