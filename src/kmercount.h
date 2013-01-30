@@ -60,6 +60,8 @@ void kmercount_free(kmercount_t*);
  * already in the table. */
 void kmercount_add(kmercount_t* C, kmer_t x, uint32_t delta);
 
+uint32_t kmercount_get(kmercount_t* C, kmer_t x);
+
 
 #endif
 

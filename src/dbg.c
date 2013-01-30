@@ -3,9 +3,8 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "bloom.h"
 #include "dbg.h"
-#include "kmercache.h"
+#include "kmercount.h"
 #include "kmerset.h"
 #include "misc.h"
 
@@ -124,53 +123,37 @@ static bool edgestack_pop(edgestack_t* S, edge_t* e)
 }
 #endif
 
-
-/* I'm fixing cells per block. It's not obvious the effect of changing it, so I
- * don't want to expose it as an option. */
-static const size_t cells_per_bucket = 8;
-
-/* Maximum number of seeds we might accumulated. */
-static const size_t max_seeds = 250000;
-
 struct dbg_t_
 {
-    /* Bloom filter to accumalate k-mer statistics. */
-    bloom_t* B;
+    /* Kmer count table */
+    kmercount_t* T;
 
     /* k-mer size */
     size_t k;
 
     /* k-mer mask */
     kmer_t mask;
-
-    /* A leaky hash table of k-mer seeds used as starting points for traversing
-     * the graph. */
-    kmercache_t* seeds;
 };
 
 
-dbg_t* dbg_alloc(size_t n, size_t k)
+dbg_t* dbg_alloc(size_t k)
 {
     dbg_t* G = malloc_or_die(sizeof(dbg_t));
-
-    size_t num_buckets = n / 4 / cells_per_bucket; /* assuming 4 subtables. */
-    G->B = bloom_alloc(num_buckets , cells_per_bucket);
+    G->T = kmercount_alloc(8);
     G->k = k;
     G->mask = kmer_mask(k);
-    G->seeds = kmercache_alloc(max_seeds);
     return G;
 }
 
 
 void dbg_free(dbg_t* G)
 {
-    bloom_free(G->B);
-    kmercache_free(G->seeds);
+    kmercount_free(G->T);
     free(G);
 }
 
 
-void dbg_add_twobit_seq(dbg_t* G, rng_t* rng, const twobit_t* seq)
+void dbg_add_twobit_seq(dbg_t* G, const twobit_t* seq)
 {
     size_t i, len = twobit_len(seq);
     kmer_t x = 0, y;
@@ -179,29 +162,16 @@ void dbg_add_twobit_seq(dbg_t* G, rng_t* rng, const twobit_t* seq)
 
         if (i + 1 >= G->k) {
             y = kmer_canonical(x, G->k);
-            bloom_add(G->B, y, 1);
-            kmercache_inc(G->seeds, rng, y);
+            kmercount_add(G->T, y, 1);
         }
     }
-}
-
-
-static int kmer_cache_cell_cmp(const void* a, const void* b)
-{
-    uint32_t ca = ((kmercache_cell_t*) a)->count;
-    uint32_t cb = ((kmercache_cell_t*) b)->count;
-
-    if      (ca  < cb) return -1;
-    else if (ca == cb) return  0;
-    else               return  1;
 }
 
 
 /* One thread traversing the graph. */
 typedef struct dbg_dump_thread_ctx_t_
 {
-    bloom_t* B;
-    kmerstack_t* seeds;
+    kmercount_t* T;
     size_t k;
 } dbg_dump_thread_ctx_t;
 
@@ -406,6 +376,14 @@ static void write_sparse_hb(FILE* fout,
 void dbg_dump(const dbg_t* G, FILE* fout, size_t num_threads,
               adj_graph_fmt_t fmt)
 {
+    /* Ok, what is the new seeding strategy?
+     * What we want is to take the top-m k-mers while using space proportional
+     * to m. That suggests a fixed size heap. */
+
+    /* Ok, let's fucking do it. */
+    // TODO
+
+
     /* Dump seeds and sort for best-first traversal. */
     kmercache_cell_t* seeds = malloc_or_die(G->seeds->n * sizeof(kmercache_cell_t));
     memcpy(seeds, G->seeds->xs, G->seeds->n * sizeof(kmercache_cell_t));

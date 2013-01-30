@@ -12,6 +12,7 @@ pique_SOURCES = pique.c \
                 fastq.h fastq.c \
                 kmercache.h kmercache.c \
                 kmercount.h kmercount.c \
+                kmerheap.h kmerheap.c \
                 rng.h rng.c \
                 kmerset.h kmerset.c
 

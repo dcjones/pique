@@ -80,9 +80,6 @@ int main(int argc, char* argv[])
     int in_fmt = INPUT_FMT_FASTA;
     int out_fmt = ADJ_GRAPH_FMT_MM;
 
-    /* Size of the graph structure. */
-    size_t n = 100000000;
-
     /* K-mer size. */
     size_t k = 25;
 
@@ -102,14 +99,10 @@ int main(int argc, char* argv[])
     };
 
     while (true) {
-        opt = getopt_long(argc, argv, "n:k:t:vh", long_options, &opt_idx);
+        opt = getopt_long(argc, argv, "k:t:vh", long_options, &opt_idx);
         if (opt == -1) break;
 
         switch (opt) {
-            case 'n':
-                n = strtoul(optarg, NULL, 10);
-                break;
-
             case 'k':
                 k = strtoul(optarg, NULL, 10);
                 break;
@@ -138,7 +131,7 @@ int main(int argc, char* argv[])
     }
 
     kmer_init();
-    dbg_t* G = dbg_alloc(n, k);
+    dbg_t* G = dbg_alloc(k);
 
     pthread_mutex_t f_mutex;
     pthread_mutex_init_or_die(&f_mutex, NULL);
